@@ -1,0 +1,395 @@
+<!doctype html>
+
+<!--
+  A presentation done entirely in Markdown, as found in extras/markdown/.
+  
+  By: @henrikingo
+-->
+
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Ruby on Rails on Kubernetes</title>
+    
+    <meta name="description" content="Ruby on Rails on Kubernetes" />
+    <meta name="author" content="Bjoern Pohl" />
+    <link rel="stylesheet" href="../extras/highlight/styles/github.css">
+
+        
+    <!--
+        Styles specific for this example presentation. 
+    -->
+    <link href="css/markdown-slides.css" rel="stylesheet" />
+    <link href="css/devopsy.css" rel="stylesheet" />
+    <link href="css/effects.css" rel="stylesheet" />
+    
+</head>
+
+<body class="impress-not-supported">
+<div class="fallback-message">
+    <p>Your browser <b>doesn't support the features required</b> by impress.js, so you are presented with a simplified version of this presentation.</p>
+    <p>For the best experience please use the latest <b>Chrome</b>, <b>Safari</b> or <b>Firefox</b> browser.</p>
+</div>
+
+<div id="impress" data-transition-duration="800">
+<div id="Title" class="step slide title markdown" data-x="2000" data-y="0">
+#  Ruby on Rails on Kubernetes
+### Bjoern Pohl, Senior System Administrator @Paessler AG
+</div>
+<div id="Intro" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+![Ruby Logo](images/ruby.svg)
+![Ruby Logo](images/rails.svg)
+![Ruby Logo](images/helm.svg)
+![Ruby Logo](images/k8s.png)
+
+</div>
+<div id="dockerbasics" class="step slide markdown fullpic" data-rel-x="0" data-rel-y="1900">
+Some basic Dockerfile is is needed:
+
+    FROM ruby:2.5.5
+    RUN apt-get update -qq && apt-get install -y nodejs postgresql-client
+    RUN mkdir /myapp
+    WORKDIR /myapp
+    COPY Gemfile /myapp/Gemfile
+    COPY Gemfile.lock /myapp/Gemfile.lock
+    RUN gem update --system && gem install bundler && bundler update --bundler
+    RUN bundle install
+    COPY . /myapp
+
+    # Add a script to be executed every time the container starts.
+    COPY entrypoint.sh /usr/bin/
+    RUN chmod +x /usr/bin/entrypoint.sh
+    ENTRYPOINT ["entrypoint.sh"]
+    EXPOSE 3000
+
+    # Start the main process.
+    CMD ["rails", "server", "-b", "0.0.0.0"]
+</div>
+<div id="docker_build" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+## Let's build it
+
+    $> docker build --tag cool_app:0.1 .
+    [...]
+    # one-off test shot
+    $> docker run -it -p 3000:3000 cool_app:0.1
+    => Booting Puma
+    => Rails 5.2.3 application starting in development 
+    => Run `rails server -h` for more startup options
+    Puma starting in single mode...
+    * Version 3.12.1 (ruby 2.5.5-p157), codename: Llamas in Pajamas
+    * Min threads: 5, max threads: 5
+    * Environment: development
+    * Listening on tcp://0.0.0.0:3000
+    Use Ctrl-C to stop
+
+    
+    </div>
+    
+<div id="rails_server" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+
+Some thoughts about "rails server"
+
+* Unicorn
+* Puma ( which is rails server here :) )
+* Passenger 5 (commercial/open source)
+
+Most of the time Server performance isn't the problem of your slowish app...
+
+</div>
+
+<div id="docker_registry" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Your Docker Image
+after docker build, the image lives on your computer
+    
+
+    $> docker images
+    docker images|grep cool
+    cool_app   0.1  aab393b3215b About an hour ago 1.11GB
+
+
+1.1GB... oopsie woopsi 🙀
+
+Dive to the rescue: https://github.com/wagoodman/dive
+![Ruby Logo](images/dive.jpg)
+
+</div>
+
+<div id="docker_registry2" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Make it available to k8s
+
+We need a Registry which can be accessed from Kubernetes.
+
+Your options:
+
+* hub.docker.com (for public stuff)
+* hub.docker.com ($$ for private stuff)
+* gcloud container registry
+* host your own , .i.e. : https://goharbor.io/
+* ...
+
+</div>
+<div id="k8se" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Kubernetes    
+![k8s Logo](images/k8s.png)
+</div>
+<div id="k8s_local" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Your local K8S env
+    
+Your options:
+
+* Windows
+    * Docker4Windows (comes with single node k8s as an option)
+    * some VM and minikube or k3s
+* Mac
+    * Docker4Mac (comes with single node k8s as an option)
+    * again, some vm and minikube or k3s
+* Linux
+    * minikube
+    * k3s
+    * ...
+</div>
+<div id="k8s_deploy" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# How do I deploy my stuff to K8S?
+
+Again, your options 🤓:
+
+* Use (a not-so-old-version of) docker-compose.
+  * docker stack deploy --orchestrator=kubernetes -c docker-compose.yml myapp
+* Use manually written yaml manifests
+* Use manually written yaml files and helm
+* Use *kompose* to translate docker-compose to not-so-manually written manifests.
+* my opinion: manually written manifests and 50% of helm(1)
+</div>
+<div id="k8s_deploy2" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# let's get a bit more RnR specific.
+</div>
+<div id="k8s_deploy22" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Secret handling
+
+config/database.yml
+![k8s Logo](images/secret.png)
+
+
+Please, no:
+</div>
+<div id="k8s_secret" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Secret handling (better)
+
+config/database.yml
+
+    production:
+    <<: *default
+    database: <%= ENV.fetch("DATABASE_NAME") %>
+    username: <%= ENV.fetch("DATABASE_USER") %>
+    password: <%= ENV.fetch("DATABASE_PASSWORD") %>
+    host: <%= ENV.fetch("DATABASE_URL") %>
+    port: <%= ENV.fetch("DATABASE_PORT") %>
+
+
+Generate a secret: 
+
+    kubectl create secret generic db-user-pass --from-literal=password=topsecure123
+    kubectl create secret generic db-user --from-literal=username=myapp
+
+</div>
+<div id="k8s_deploy3" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# simple deployment
+    ---
+    apiVersion: apps/v1beta2
+    kind: Deployment
+    metadata:
+      name: myapp-deployment
+    spec:
+      replicas: 1
+      selector:
+        matchLabels: 
+          app: myapp-dep
+</div>
+<div id="k8s_deploy31" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+
+        spec:
+            containers
+            - name: rails
+                image: myregistry.io:me/cool-app:0.1
+                args: ["rake assets:precompile && rails s -p 3000 -b 0.0.0.0"]
+                env:
+                - name: RAILS_LOG_TO_STDOUT
+                value: "true"
+                - name: RAILS_SERVE_STATIC_FILES
+                value: "true"
+                - name: DATABASE_NAME
+                value: "myapp-prod"
+                - name: DATABASE_PORT
+                value: "5432"
+                - name: DATABASE_URL
+                value: "postgres"
+                - name: DATABASE_USER
+                valueFrom:
+                    secretKeyRef:
+                    name: "db-user"
+                    key: "username"
+                - name: DATABASE_PASSWORD
+                valueFrom:
+                    secretKeyRef:
+                    name: "db-user-pass"
+                    key: "password"
+                - name: RAILS_ENV
+                value: "production"
+                - name: SECRET_KEY_BASE
+                valueFrom:
+                    secretKeyRef:
+                    name: "secret-key-base"
+                    key: "secret-key-base"
+                ports:
+                - containerPort: 3000
+</div>
+<div id="k8s_deploy4" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Readiness and liveness probes.
+
+
+Readiness: Application ready to server
+
+Liveness: Application still(!) serves 
+
+* Wants http status code 200 (and yes, no 3xx! - http>https!)
+
+Way to go: route to /health with some logic testing app and db connection etc.
+
+
+</div>
+<div id="k8s_migrations1" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+#Rolling updates and migrations
+
+Assumption: app higly available, so scale>1 and rolling updates.
+
+    class SomeMigration < ActiveRecord::Migration[5.0]
+        def up
+            rename_column :users, :name, :surname
+            add_column :users, :surname, :string
+
+        end
+        
+        def down
+            [some remediation logic]
+        end
+    end
+
+
+Problem: after migration of db, containers with old app fail.
+
+</div>
+<div id="k8s_migrations2" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+2 steps:
+        
+            class SomeMigration < ActiveRecord::Migration[5.0]
+                def up
+                    
+                    add_column :users, :surname, :string
+                    add_column :users, :forename, :string
+        
+                end
+                
+                def down
+                    [some remediation logic]
+                end
+            end
+        
+Add logic in rails to populate these fields and/or add migration to do this ( split name etc...)        
+        
+</div>
+<div id="k8s_migrations3" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+2nd step:
+                
+                    class SomeMigration2 < ActiveRecord::Migration[5.0]
+                        def up
+                            
+                            remove_column :users, :name
+
+                        end
+                        
+                        def down
+                            [some remediation logic]
+                        end
+                    end
+                
+Remove column when not needed anymore by any running container. 
+
+</div>
+<div id="k8s_migrations3" class="step slide markdown" data-rel-x="0" data-rel-y="1900">
+# Some thoughts about storage
+
+* databases 
+* cache
+* assets
+
+
+</div>
+<div id="tilted-slide" class="step slide markdown" data-rotate="-85" data-x="1000" data-y="16000" data-z="1000" data-scale="2">
+# Thank you!
+
+</div>
+
+<script type="text/javascript">
+var enableBwCss = function(){
+    disableDevopsCss();
+    disableEffectsCss();
+};
+
+var enableDevopsCss = function(){
+    document.body.classList.add("devopsy");
+    disableEffectsCss();
+};
+
+var disableDevopsCss = function(){
+    document.body.classList.remove("devopsy");
+};
+
+var enableEffectsCss = function(){
+    document.body.classList.add("effects");
+    disableDevopsCss();
+};
+
+var disableEffectsCss = function(){
+    document.body.classList.remove("effects");
+};
+</script>
+
+
+<div id="js-slide" class="step slide" data-rotate="0" data-x="4000" data-y="5000">
+<h1>CSS &amp; Slide Config</h1>
+
+
+<p><a href="#" onclick="enableBwCss();" class="css-menu-bw">Black &amp; white</a>, 
+<a href="#" onclick="enableDevopsCss();" class="css-menu-devopsy">Devopsy</a>, 
+<a href="#" onclick="enableEffectsCss();" class="css-menu-effects">Effects overload</a></p>
+
+
+
+</div>
+
+
+<div id="overview" class="step" data-x="5000" data-y="4000" data-scale="10" style="pointer-events: none;" data-rotate="5">
+</div>
+
+</div>
+
+<div id="impress-toolbar"></div>
+<div id="impress-help"></div>
+
+
+<!-- Extra modules
+     Load highlight.js, mermaid.js and markdown.js from extras.
+     See also src/plugins/extras/extras.js -->
+<script type="text/javascript" src="../extras/highlight/highlight.pack.js"></script>
+<script type="text/javascript" src="../extras/mermaid/mermaid.min.js"></script>
+<script type="text/javascript" src="../extras/markdown/markdown.js"></script>
+
+<!--
+    To make all described above really work, you need to include impress.js in the page.
+    You also need to call a `impress().init()` function to initialize impress.js presentation.
+    And you should do it in the end of your document. 
+-->
+<script type="text/javascript" src="../js/impress.js"></script>
+<script>impress().init();</script>
+</body>
+</html>
